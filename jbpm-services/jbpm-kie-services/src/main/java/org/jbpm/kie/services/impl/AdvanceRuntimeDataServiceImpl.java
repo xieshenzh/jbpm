@@ -38,6 +38,7 @@ public class AdvanceRuntimeDataServiceImpl extends AbstractAdvanceRuntimeDataSer
         translateTable.put(TASK_ATTR_NAME, "task.name");
         translateTable.put(TASK_ATTR_OWNER, "task.actualOwner_id");
         translateTable.put(TASK_ATTR_STATUS, "task.status");
+        translateTable.put(TASK_ATTR_CREATED_ON, "task.createdon");
         translateTable.put(PROCESS_ATTR_DEPLOYMENT_ID, "pil.externalId");
     }
 

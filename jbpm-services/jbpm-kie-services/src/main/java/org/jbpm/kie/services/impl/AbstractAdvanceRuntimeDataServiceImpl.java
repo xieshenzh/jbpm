@@ -16,10 +16,10 @@
 
 package org.jbpm.kie.services.impl;
 
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -214,7 +214,7 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
             });
 
             taskVariables.stream().filter(e -> e.getObjectValue() != null).forEach(var -> {
-                String valueParam = computeVarValueParameter(var, "V", var.getColumn());
+                String valueParam = computeVarValueParameter(var, "V");
                 query.setParameter(valueParam, var.getObjectValue());
             });
 
@@ -227,7 +227,7 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
                 query.setParameter(nameParam, varPrefix + var.getColumn());
             });
             processVariables.stream().filter(e -> e.getObjectValue() != null).forEach(var -> {
-                String valueParam = computeVarValueParameter(var, "P", var.getColumn());
+                String valueParam = computeVarValueParameter(var, "P");
                 query.setParameter(valueParam, var.getObjectValue());
             });
 
@@ -241,7 +241,19 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
                 query.setParameter("owners", distinctOwners);
             }
 
-            attributes.stream().filter(e -> e.getObjectValue() != null).forEach(entry -> query.setParameter("ATTR_" + entry.getColumn(), entry.getObjectValue()));
+            attributes.stream().filter(e -> e.getObjectValue() != null).forEach(entry -> {
+                if ("BETWEEN".equals(entry.getOperator())) {
+                    for (int i = 0; i < entry.getValue().size(); i++) {
+                        query.setParameter("ATTR_" + entry.getColumn() + "_" + i, entry.getValue().get(i));
+                    }
+                } else if ("TIME_RANGE".equals(entry.getOperator())) {
+                    for (int i = 0; i < entry.getValue().size(); i++) {
+                        query.setParameter("ATTR_" + entry.getColumn() + "_" + i, Timestamp.valueOf(entry.getValue().get(i).toString()));
+                    }
+                } else {
+                    query.setParameter("ATTR_" + entry.getColumn(), entry.getObjectValue());
+                }
+            });
             query.setParameter("processType", processType);
 
             addPagination(query, queryContext);
@@ -260,7 +272,7 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
     }
 
     private List<org.jbpm.services.api.model.ProcessInstanceWithVarsDesc> collectProcessData(List<Number> ids, String varPrefix, List<QueryParam> params) {
-        Optional<QueryParam> exclude = findQueryParamByOperator(params, "EXCLUDE"); // PROCESS_VARIABLES EXCLUDE 
+        Optional<QueryParam> exclude = findQueryParamByOperator(params, "EXCLUDE"); // PROCESS_VARIABLES EXCLUDE
         boolean excludeProcessVariables = exclude.isPresent() && exclude.get().getColumn().equals("ATTR_COLLECTION_VARIABLES");
 
         List<Object[]> procRows = commandService.execute(new QueryNameCommand<List<Object[]>>("GetProcessInstanceByIdList", singletonMap(ID_LIST, ids)));
@@ -302,7 +314,7 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
 
             List<QueryParam> varParams = params.stream().filter(e -> e.getColumn().equals(var)).collect(toList());
             varParams.stream().forEach(expr -> {
-                String valueParam = computeVarValueParameter(expr, prefix, expr.getColumn());
+                String valueParam = computeVarValueParameter(expr, prefix);
                 condition.append(" AND " + computeExpression(expr, valueField, ":" + valueParam));
             });
 
@@ -316,7 +328,7 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
         return prefix + "_NAME_" + sanitize(name);
     }
 
-    private String computeVarValueParameter(QueryParam expr, String prefix, String name) {
+    private String computeVarValueParameter(QueryParam expr, String prefix) {
         return prefix + "_VALUE_" + expr.getOperator() + "_" + sanitize(expr.getColumn());
     }
 
@@ -343,8 +355,22 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
                 return leftOperand + " <> " + rightOperand + " ";
             case "LIKE_TO":
                 return leftOperand + " LIKE " + rightOperand + " ";
+            case "GREATER_THAN":
+                return leftOperand + " > " + rightOperand;
+            case "GREATER_OR_EQUALS_TO":
+                return leftOperand + " >= " + rightOperand;
+            case "LOWER_THAN":
+                return leftOperand + " < " + rightOperand;
+            case "LOWER_OR_EQUALS_TO":
+                return leftOperand + " <= " + leftOperand;
+            case "BETWEEN":
+            case "TIME_RANGE":
+                 if(expr.getValue().size() != 2) {
+                    throw new IllegalArgumentException("BETWEEN operator requires 2 values. Received: " + expr.getValue().size());
+                }
+                return leftOperand + " >= " + rightOperand + "_0 AND " + leftOperand + " <= " + rightOperand + "_1";
             default:
-                throw new UnsupportedOperationException("Queryparam: " + expr + " not supported");
+                throw new UnsupportedOperationException("Queryparam: " + expr.getOperator() + " not supported");
         }
     }
 
@@ -376,7 +402,7 @@ public abstract class AbstractAdvanceRuntimeDataServiceImpl {
     }
 
     private List<org.jbpm.services.api.model.UserTaskInstanceWithPotOwnerDesc> collectUserTaskData(String taskRetriever, Function<Object[], UserTaskInstanceWithPotOwnerDesc> mapper, List<Number> ids, String varPrefix, List<QueryParam> params) {
-        Optional<QueryParam> exclude = findQueryParamByOperator(params, "EXCLUDE"); // PROCESS_VARIABLES EXCLUDE 
+        Optional<QueryParam> exclude = findQueryParamByOperator(params, "EXCLUDE"); // PROCESS_VARIABLES EXCLUDE
         boolean excludeProcessVariables = exclude.isPresent() && exclude.get().getColumn().equals("ATTR_COLLECTION_VARIABLES");
 
         // query data
